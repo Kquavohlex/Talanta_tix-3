@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TalantaTix Kenya</title>
+<style>
+:root{--k:#0b0b0b;--r:#bb0000;--g:#006600;--w:#fff}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,sans-serif;background:var(--k);color:var(--w);padding-bottom:52px}
+.flag{height:8px;background:linear-gradient(#000 0 30%,#fff 30% 34%,var(--r) 34% 66%,#fff 66% 70%,var(--g) 70%)}
+header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:10px 14px;background:#111}
+.brand{font-weight:800;font-size:18px;cursor:pointer}.brand b{color:var(--r)}
+nav{display:flex;flex-wrap:wrap;gap:6px}
+main{max-width:760px;margin:0 auto;padding:14px}
+button{background:var(--r);color:#fff;border:0;border-radius:8px;padding:10px 14px;font-weight:700;cursor:pointer;font-size:14px}
+button.alt{background:var(--g)}button.ghost{background:#262626}button:disabled{opacity:.45;cursor:not-allowed}
+.card{background:#161616;border:1px solid #2a2a2a;border-radius:12px;padding:14px;margin:12px 0}
+.match{text-align:center;background:linear-gradient(#000b,#000b),var(--bg,#222) center/cover}
+.match h2{margin:6px 0}.cd{font-size:22px;color:#7CFC9A;font-weight:700}
+.badge{display:inline-block;background:#1565ff;color:#fff;border-radius:99px;padding:3px 10px;font-size:12px;font-weight:800}
+input,select,textarea{width:100%;padding:10px;margin:4px 0 10px;border-radius:8px;border:1px solid #444;background:#0b0b0b;color:#fff;font-size:16px;font-family:inherit}
+input[type=checkbox]{width:auto;margin-right:6px}
+label{font-size:13px;color:#ccc;display:block}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.msg{padding:10px;border-radius:8px;margin:8px 0}.err{background:#4a0000}.ok{background:#003a00}.note{background:#2a2200;color:#ffd866}
+.tk{display:flex;justify-content:space-between;align-items:center;gap:8px}.tk input{width:80px;margin:0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.stat{background:#0f0f0f;border-radius:10px;padding:10px;text-align:center}.stat b{font-size:22px;display:block}
+.sm{font-size:12px;color:#aaa}.tbl{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:6px;border-bottom:1px solid #2a2a2a;text-align:left;white-space:nowrap}
+.cat{border-top:1px solid #2a2a2a;padding:8px 0}
+summary{cursor:pointer;font-weight:700;padding:6px 0}
+a.l{color:#9fd;cursor:pointer;margin-right:10px;font-size:13px}
+.tickf{position:fixed;bottom:0;left:0;right:0;background:#111;border-top:3px solid var(--r);overflow:hidden;white-space:nowrap}
+.tick{display:inline-block;padding:12px 0;animation:m 30s linear infinite;font-weight:700}
+@keyframes m{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+</style>
+</head>
+<body>
+<div class="flag"></div>
+<header><div class="brand" id="brand">🇰🇪 Talanta<b>Tix</b> Kenya</div><nav id="nav"></nav></header>
+<main id="app">Loading…</main>
+<div class="card" style="max-width:760px;margin:12px auto">
+  <div id="flinks"></div>
+  <div id="foot" class="sm" style="margin-top:8px"></div>
+</div>
+<div class="tickf"><div class="tick" id="tick"></div></div>
+
+<script>
+const $=(s,r=document)=>r.querySelector(s), app=$('#app');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const kes=n=>'KSh '+Number(n).toLocaleString('en-KE');
+let user=null, timer=null, SET={};
+
+async function api(path,method,body){
+  const r=await fetch('/api'+path,{method:method||'GET',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(d.error||'Request failed');
+  return d;
+}
+const tryApi=async(p)=>{try{return await api(p)}catch{return null}};
+const go=h=>{location.hash='#/'+h};
+const toast=(t,ok)=>{const el=$('#t'); if(el) el.innerHTML=`<div class="msg ${ok?'ok':'err'}">${esc(t)}</div>`;};
+const soon=(what)=>`<div class="msg note">${esc(what)} needs the next backend phase and is not active yet.</div>`;
+
+async function loadUser(){try{user=await api('/auth/me')}catch{user=null}}
+function renderNav(isAdmin){
+  const items=isAdmin?[]:user
+    ?[['home','Home'],['tickets','My Tickets'],['support','Support'],['contact','Contact'],['account','Account'],['help','Help'],['pay','Pay My Ticket'],['cancel','Cancel'],['invite','Invite']]
+    :[['home','Home'],['help','Help'],['contact','Contact']];
+  $('#nav').innerHTML=items.map(([h,t])=>`<button class="ghost" data-g="${h}">${t}</button>`).join('')+
+    (isAdmin?'':user?'<button id="out">Logout</button>':'<button data-g="login">Login</button><button class="alt" data-g="register">Sign up</button>');
+  $('#nav').querySelectorAll('[data-g]').forEach(b=>b.onclick=()=>go(b.dataset.g));
+  const o=$('#out'); if(o) o.onclick=async()=>{await api('/auth/logout','POST',{});user=null;go('home');route()};
+}
+function countdown(iso){
+  clearInterval(timer); const el=$('#cd'); if(!el) return;
+  const t=()=>{let s=Math.max(0,Math.floor((new Date(iso)-Date.now())/1000));
+    el.textContent=`${Math.floor(s/86400)}d ${Math.floor(s%86400/3600)}h ${Math.floor(s%3600/60)}m ${s%60}s`};
+  t(); timer=setInterval(t,1000);
+}
+function matchCard(e){
+  if(!e) return '<div class="card">No match is published yet. Check back soon.</div>';
+  const bg=e.background_url?`style="--bg:url('${esc(e.background_url)}')"`:'';
+  const logo=(u,n)=>u?`<img src="${esc(u)}" alt="${esc(n)}" height="56"> `:'';
+  return `<div class="card match" ${bg}>${logo(e.home_logo,e.home_name)}${logo(e.away_logo,e.away_name)}
+    <h2>${esc(((e.home_name||'')+' VS '+(e.away_name||'')).toUpperCase())}</h2>
+    <div>${new Date(e.starts_at).toLocaleString('en-KE',{dateStyle:'full',timeStyle:'short'})}</div>
+    <div>📍 ${esc(e.venue)}</div><div class="cd" id="cd"></div>
+    <p><button id="buy">BUY TICKET</button></p></div><div id="buybox"></div>`;
+}
+function buyPanel(e){
+  $('#buybox').innerHTML=`<div class="card"><h3>Choose tickets</h3>`+
+    e.categories.map(c=>`<div class="tk"><div><b>${esc(c.code)} TICKET</b><br>${kes(c.price_kes)} · ${c.available} left</div>
+    <input type="number" min="0" max="${c.available}" value="0" data-p="${c.price_kes}"></div><hr style="border-color:#2a2a2a">`).join('')+
+    `<div class="tk"><b>Order total</b><b id="tot">KSh 0</b></div>
+     <label>Promo code (optional)</label><input id="promo">
+     <label>M-Pesa phone number</label><input id="mp" type="tel" placeholder="07XX XXX XXX">
+     <button disabled>Pay Now (M-Pesa)</button>${soon('Orders and TinyPesa M-Pesa payment')}
+     <div class="sm">The server will re-check all prices; these totals are display only.</div></div>`;
+  const upd=()=>{let t=0;$('#buybox').querySelectorAll('input[data-p]').forEach(i=>t+=(+i.value||0)*+i.dataset.p);$('#tot').textContent=kes(t)};
+  $('#buybox').querySelectorAll('input[data-p]').forEach(i=>i.oninput=upd);
+}
+async function mountMatch(){
+  const e=await api('/featured'); const box=$('#matchbox'); box.innerHTML=matchCard(e);
+  if(e){countdown(e.starts_at);$('#buy').onclick=()=>user?buyPanel(e):go('login');}
+}
+
+/* ---------- customer pages ---------- */
+async function home(){
+  app.innerHTML=`<h1 style="margin:8px 0">${esc(SET.headline||'')}</h1><p>${esc(SET.tagline||'')}</p><div id="matchbox"></div>`;
+  await mountMatch();
+}
+function login(){
+  app.innerHTML=`<div class="card"><h2>🇰🇪 TalantaTix Kenya Login</h2><div id="t"></div>
+  <label>Email or phone number</label><input id="id" autocomplete="username">
+  <label>Password</label><div class="row"><input id="pw" type="password" autocomplete="current-password" style="flex:1"><button class="ghost" id="sh">Show</button></div>
+  <label><input id="rm" type="checkbox">Remember me</label>
+  <p><button id="go">Login</button> <button class="alt" id="su">Create account</button></p>
+  <div class="sm">Forgot password? Please contact support. Self-service reset needs the next backend phase.</div></div>`;
+  $('#sh').onclick=()=>{const p=$('#pw');p.type=p.type==='password'?'text':'password'};
+  $('#su').onclick=()=>go('register');
+  $('#go').onclick=async()=>{try{await api('/auth/login','POST',{identifier:$('#id').value,password:$('#pw').value,remember:$('#rm').checked});await loadUser();go('dashboard')}catch(e){toast(e.message)}};
+}
+async function register(ref){
+  const cs=await api('/countries');
+  app.innerHTML=`<div class="card"><h2>🇰🇪 Create your account</h2><div id="t"></div>
+  <label>Full name</label><input id="fn"><label>Email address</label><input id="em" type="email">
+  <label>Search country</label><input id="cs" placeholder="Type a country or code…">
+  <label>Country and calling code</label><select id="co"></select>
+  <label>Phone number</label><input id="ph" type="tel">
+  <label>Password (8+ characters)</label><input id="p1" type="password">
+  <label>Confirm password</label><input id="p2" type="password">
+  <label>Age</label><input id="ag" type="number" min="1">
+  <label>Promo code (optional)</label><input id="pc">
+  <label><input id="tc" type="checkbox">I accept the Terms and Conditions</label>
+  <p><button id="go">Register</button></p></div>`;
+  const fill=q=>{$('#co').innerHTML=cs.filter(c=>(c.name+c.calling).toLowerCase().includes(q.toLowerCase())).map(c=>`<option value="${c.code}" ${c.code==='KE'?'selected':''}>${esc(c.name)} (${c.calling})</option>`).join('')};
+  fill(''); $('#cs').oninput=e=>fill(e.target.value);
+  $('#go').onclick=async()=>{try{await api('/auth/register','POST',{fullName:$('#fn').value,email:$('#em').value,country:$('#co').value,phone:$('#ph').value,password:$('#p1').value,confirmPassword:$('#p2').value,age:$('#ag').value,promoCode:$('#pc').value,acceptTerms:$('#tc').checked,referral:ref||undefined});await loadUser();go('dashboard')}catch(e){toast(e.message)}};
+}
+async function dashboard(){
+  app.innerHTML=`<h2>Welcome, ${esc(user.full_name)}</h2><span class="badge">${esc(user.badge)}</span>
+  <div id="matchbox"></div>
+  <div class="card"><h3>Profile</h3>${esc(user.email)}<br>+${esc(user.calling_code)} ${esc(user.phone)} · ${esc(user.country_code)}</div>
+  <div class="card"><h3>My Tickets</h3>No tickets yet.</div>
+  <div class="card"><h3>Payment history</h3>No payments yet.</div>
+  <div class="card"><h3>Notifications</h3>No new notifications.</div>`;
+  await mountMatch();
+}
+const pages={
+  tickets:()=>`<h2>My Tickets</h2><div class="card">You have no tickets yet.</div>${soon('QR/PDF tickets, download and print')}`,
+  support:()=>`<h2>Support</h2><div class="card"><label>Subject</label><input><label>Message</label><textarea rows="4"></textarea><button disabled>Send</button></div>${soon('Support requests and replies')}`,
+  contact:()=>`<h2>Contact Us</h2><div class="card">Phone: ${esc(SET.support_phone||'Not set yet')}<br>Email: ${esc(SET.support_email||'Not set yet')}</div>`,
+  account:()=>`<h2>Account</h2><div class="card">${esc(user.full_name)}<br>${esc(user.email)}<br><span class="badge">${esc(user.badge)}</span></div>${soon('Profile editing and password change')}`,
+  pay:()=>`<h2>Pay My Ticket</h2><div class="card">No unpaid orders.</div>${soon('Pending-payment list')}`,
+  cancel:()=>`<h2>Cancel My Ticket</h2><div class="card">Cancellation requests are reviewed under the published Cancellation and Refund Policy. Refunds are never automatic.</div>${soon('Cancellation requests')}`,
+  invite:()=>{const l=`${location.origin}/#/register?ref=${user.referral_code}`;return `<h2>Invite a Friend</h2><div class="card">Your link:<br><b style="word-break:break-all">${esc(l)}</b><p><button id="cp">Copy link</button></p></div>`},
+  help:()=>`<h2>Help Center</h2><div class="card">${[
+   ['How do I register?','Create an account with your name, email, phone, age (adults only) and accept the Terms.'],
+   ['How do I pay?','Choose tickets, enter your M-Pesa number and approve the STK prompt on your phone.'],
+   ['How do QR tickets work?','Each ticket has its own unique QR code. It is scanned once at the gate.'],
+   ['Can I cancel?','Submit a request from Cancel My Ticket. Refunds follow the Refund Policy after review.']
+  ].map(([q,a])=>`<details><summary>${q}</summary><p>${a}</p></details>`).join('')}</div>`,
+  about:()=>'<h2>About Us</h2><div class="card">TalantaTix Kenya is an independent ticketing platform. It is not endorsed by any government body.</div>',
+  terms:()=>'<h2>Terms and Conditions</h2><div class="card">Placeholder: have a lawyer supply your final Terms.</div>',
+  privacy:()=>'<h2>Privacy Policy</h2><div class="card">Placeholder: have a lawyer supply your final Privacy Policy.</div>',
+  cancellation:()=>'<h2>Cancellation Policy</h2><div class="card">Placeholder: add your published cancellation rules.</div>',
+  refunds:()=>'<h2>Refund Policy</h2><div class="card">Placeholder: add your published refund rules.</div>'
+};
+const needLogin=['tickets','support','account','pay','cancel','invite'];
+
+/* ---------- admin ---------- */
+function adminLogin(){
+  renderNav(true);
+  app.innerHTML=`<div class="card"><h2>Administrator login</h2><div id="t"></div><label>Email</label><input id="ae" type="email"><label>Password</label><input id="ap" type="password"><button id="go">Login</button></div>`;
+  $('#go').onclick=async()=>{try{await api('/admin/login','POST',{email:$('#ae').value,password:$('#ap').value});route()}catch(e){toast(e.message)}};
+}
+const lt=iso=>{const d=new Date(iso);d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,16)};
+async function admin(){
+  const st=await tryApi('/admin/stats'); if(!st) return adminLogin();
+  renderNav(true);
+  const [cats,evs,sett,cus,log]=await Promise.all(['/admin/categories','/admin/events','/admin/settings','/admin/customers','/admin/audit'].map(tryApi));
+  const S=Object.fromEntries((sett||[]).map(r=>[r.key,r.value]));
+  app.innerHTML=`<div class="row" style="justify-content:space-between"><h2>Admin dashboard</h2><button class="ghost" id="lo">Logout</button></div><div id="t"></div>
+  <div class="grid">${[['Customers',st.customers],['Tickets sold',st.sold],['Available',st.available],['Revenue',kes(st.revenue)],['Pending',st.pending],['Failed',st.failed]].map(([a,b])=>`<div class="stat"><b>${b}</b>${a}</div>`).join('')}</div>
+  <div class="sm">Revenue, pending and failed show 0 until payments exist.</div>
+
+  <div class="card"><h3>Ticket prices and availability</h3>${(cats||[]).map(c=>`<div class="cat" data-c="${c.id}"><b>${esc(c.code)}</b> (event ${c.event_id}) · sold ${c.sold_quantity}
+   <div class="grid"><div><label>Price KES</label><input class="pr" type="number" value="${c.price_kes}"></div><div><label>Total quantity</label><input class="qt" type="number" value="${c.total_quantity}"></div>
+   <div><label>Sales start</label><input class="ss" type="datetime-local" value="${c.sales_start?lt(c.sales_start):''}"></div><div><label>Sales end</label><input class="se" type="datetime-local" value="${c.sales_end?lt(c.sales_end):''}"></div></div>
+   <label><input class="ac" type="checkbox" ${c.active?'checked':''}>Active</label><button class="svc">Save</button></div>`).join('')||'No access'}</div>
+
+  <div class="card"><h3>Events</h3>${(evs||[]).map(e=>`<div class="cat" data-e="${e.id}"><b>#${e.id}</b>
+   <label>Title</label><input class="et" value="${esc(e.title)}"><label>Venue</label><input class="ev" value="${esc(e.venue)}">
+   <label>Date and kickoff</label><input class="ed" type="datetime-local" value="${lt(e.starts_at)}">
+   <label>Background image URL</label><input class="eb" value="${esc(e.background_url||'')}">
+   <label><input class="ep" type="checkbox" ${e.published?'checked':''}>Published</label><label><input class="ef" type="checkbox" ${e.featured?'checked':''}>Featured</label>
+   <label><input class="ea" type="checkbox" ${e.archived?'checked':''}>Archived</label><button class="sve">Save event</button></div>`).join('')}
+   <details><summary>Create new event</summary><label>Title</label><input id="nt"><label>Venue</label><input id="nv"><label>Date and kickoff</label><input id="nd" type="datetime-local"><button id="ne">Create</button></details></div>
+
+  <div class="card"><h3>Website text</h3>${['headline','tagline','ticker','support_phone','support_email','footer_text'].map(k=>`<label>${k}</label><input data-s="${k}" value="${esc(S[k]||'')}">`).join('')}<button id="ss">Save text</button></div>
+
+  <div class="card"><h3>New promo code</h3><div class="grid"><div><label>Code</label><input id="pcode"></div><div><label>Percent off</label><input id="ppct" type="number"></div><div><label>OR fixed KES off</label><input id="pfix" type="number"></div><div><label>Max uses</label><input id="pmax" type="number"></div></div><button id="pn">Create promo</button></div>
+
+  <div class="card"><h3>Customers</h3><div class="tbl"><table><tr><th>Name</th><th>Email</th><th>Status</th><th></th></tr>${(cus||[]).map(u=>`<tr><td>${esc(u.full_name)}</td><td>${esc(u.email)}</td><td>${u.suspended?'SUSPENDED':esc(u.status)}</td><td><button class="ghost sus" data-u="${u.id}" data-s="${u.suspended?0:1}">${u.suspended?'Reactivate':'Suspend'}</button></td></tr>`).join('')}</table></div></div>
+
+  <div class="card"><h3>Audit log</h3><div class="tbl"><table>${(log||[]).slice(0,30).map(l=>`<tr><td>${new Date(l.created_at).toLocaleString()}</td><td>${esc(l.action)}</td></tr>`).join('')}</table></div></div>
+  ${soon('Orders, refunds, cancellations, reports, uploads and the ticket scanner')}`;
+
+  const run=async(fn,okMsg)=>{try{await fn();toast(okMsg,true);}catch(e){toast(e.message)}};
+  $('#lo').onclick=async()=>{await api('/admin/logout','POST',{});route()};
+  app.querySelectorAll('.svc').forEach(b=>b.onclick=()=>{const r=b.closest('[data-c]');const v=s=>r.querySelector(s).value;
+    run(()=>api('/admin/categories/'+r.dataset.c,'PATCH',{price_kes:+v('.pr'),total_quantity:+v('.qt'),active:r.querySelector('.ac').checked,
+      sales_start:v('.ss')?new Date(v('.ss')).toISOString():null,sales_end:v('.se')?new Date(v('.se')).toISOString():null}),'Saved')});
+  app.querySelectorAll('.sve').forEach(b=>b.onclick=()=>{const r=b.closest('[data-e]');const v=s=>r.querySelector(s).value;
+    run(()=>api('/admin/events/'+r.dataset.e,'PATCH',{title:v('.et'),venue:v('.ev'),starts_at:new Date(v('.ed')).toISOString(),background_url:v('.eb')||null,
+      published:r.querySelector('.ep').checked,featured:r.querySelector('.ef').checked,archived:r.querySelector('.ea').checked}),'Event saved')});
+  $('#ne').onclick=()=>run(()=>api('/admin/events','POST',{title:$('#nt').value,venue:$('#nv').value,starts_at:new Date($('#nd').value).toISOString()}),'Event created (reload to see it)');
+  $('#ss').onclick=()=>{const o={};app.querySelectorAll('[data-s]').forEach(i=>{if(i.tagName==='INPUT')o[i.dataset.s]=i.value});run(()=>api('/admin/settings','PUT',o),'Text saved')};
+  $('#pn').onclick=()=>{const b={code:$('#pcode').value};if($('#ppct').value)b.percent_off=+$('#ppct').value;if($('#pfix').value)b.fixed_off_kes=+$('#pfix').value;if($('#pmax').value)b.max_uses=+$('#pmax').value;run(()=>api('/admin/promos','POST',b),'Promo created')};
+  app.querySelectorAll('.sus').forEach(b=>b.onclick=()=>run(async()=>{await api('/admin/customers/'+b.dataset.u+'/suspend','PATCH',{suspended:b.dataset.s==='1'});route()},'Updated'));
+}
+
+/* ---------- router ---------- */
+async function route(){
+  clearInterval(timer);
+  const [path,qs]=(location.hash.slice(2)||'home').split('?');
+  try{
+    if(path==='admin') return await admin();
+    await loadUser(); renderNav(false);
+    if(needLogin.includes(path)&&!user) return login();
+    if(path==='login') login();
+    else if(path==='register') await register(new URLSearchParams(qs).get('ref'));
+    else if(path==='dashboard') user?await dashboard():login();
+    else if(pages[path]){app.innerHTML=pages[path]();const c=$('#cp');if(c)c.onclick=()=>navigator.clipboard.writeText(`${location.origin}/#/register?ref=${user.referral_code}`)}
+    else await home();
+  }catch(e){app.innerHTML=`<div class="msg err">${esc(e.message)}</div>`}
+}
+(async()=>{
+  try{
+    SET=await api('/settings');
+    const t=esc(SET.ticker)+' &nbsp;&nbsp;•&nbsp;&nbsp; ';$('#tick').innerHTML=t+t+t+t;
+    $('#foot').textContent=SET.footer_text||'';
+  }catch{}
+  $('#flinks').innerHTML='🇰🇪 '+[['about','About Us'],['contact','Contact Us'],['help','Help Center'],['terms','Terms'],['privacy','Privacy'],['cancellation','Cancellation'],['refunds','Refunds']].map(([h,t])=>`<a class="l" data-g="${h}">${t}</a>`).join('');
+  $('#flinks').querySelectorAll('[data-g]').forEach(a=>a.onclick=()=>go(a.dataset.g));
+  route();
+})();
+$('#brand').onclick=()=>go('home');
+window.addEventListener('hashchange',route);
+</script>
+</body>
+</html>
